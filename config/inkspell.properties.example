@@ -1,0 +1,7 @@
+# Copy to inkspell.properties (ignored in Git). Environment variables override these values.
+DATABASE_URL=jdbc:mysql://localhost:3306/inkspell_db?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC
+DB_USER=inkspell_local
+DB_PASSWORD=
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.5-flash
+FRONTEND_URL=https://your-project.vercel.app

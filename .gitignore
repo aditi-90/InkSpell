@@ -1,0 +1,12 @@
+target/
+.tools/
+.env
+.env.*
+!.env.example
+config/inkspell.properties
+*.log
+.idea/
+.vscode/
+*.iml
+local-tomcat/
+test-results/

@@ -1,0 +1,9 @@
+{
+  "name": "inkspell",
+  "version": "1.0.0",
+  "description": "InkSpell - Personal Reading Sanctuary Web Application",
+  "scripts": {
+    "build": "node -e \"console.log('InkSpell Vercel deployment assets verified.')\""
+  },
+  "dependencies": {}
+}

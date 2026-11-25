@@ -1,0 +1,4 @@
+<%@ page pageEncoding="UTF-8" %>
+<%@ include file="../includes/header.jspf" %>
+<section class="container page settings"><p class="eyebrow">A COMPASS FOR YOUR CURIOSITY</p><h1>Your kind of magic.</h1><p class="subtitle">Choose the worlds you love to wander.</p><form class="panel" data-ajax><input type="hidden" name="action" value="preferences"><h2>Favorite genres</h2><p>These guide your recommendations. You can change them whenever your tastes take a turn.</p><div class="preference-grid"><c:forEach var="g" items="${genres}"><label><input type="checkbox" name="genres" value="${g.id}" ${selectedGenres.contains(g.id) ? 'checked' : ''}><c:out value="${g.name}"/></label></c:forEach></div><button class="button">Save my preferences</button></form></section>
+<%@ include file="../includes/footer.jspf" %>

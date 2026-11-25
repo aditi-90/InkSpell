@@ -1,0 +1,10 @@
+.git
+.tools
+.env
+.env.*
+!.env.example
+target
+config/inkspell.properties
+*.log
+local-tomcat
+test-results
