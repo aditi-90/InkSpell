@@ -64,6 +64,13 @@ public class CatalogDao {
    * Returns all catalogue genres.
    */
   public List<Map<String, Object>> genres() throws SQLException {
+    try {
+      var rows = Sql.query("SELECT id, name FROM genres ORDER BY name");
+      if (!rows.isEmpty()) {
+        return rows;
+      }
+    } catch (Exception ignored) {}
+
     List<Map<String, Object>> list = new ArrayList<>();
     int id = 1;
     for (String g : BookCatalogue.getGenres()) {

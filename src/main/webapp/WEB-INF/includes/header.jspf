@@ -20,6 +20,7 @@
 <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
 <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></symbol>
 <symbol id="i-pages" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10M6 10h10M6 14h6"/></symbol>
+<symbol id="i-book-plus" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10M6 10h10"/><path d="M12 13v6M9 16h6"/></symbol>
 </defs></svg>
 <header class="site-header"><a class="brand" href="${pageContext.request.contextPath}/"><span class="brand-mark"><svg><use href="#i-book"/></svg></span><span><strong><c:out value="${appName}"/></strong><small>ENCHANTED SANCTUARY</small></span></a><button id="menu-toggle" class="icon-button menu-toggle" aria-controls="nav" aria-expanded="false" aria-label="Open navigation">☰</button>
 <nav id="nav" aria-label="Main navigation">

@@ -32,7 +32,38 @@ public class BookService {
           "Other");
 
   public static List<String> getAvailableGenres() {
+    try {
+      var rows = Sql.query("SELECT name FROM genres ORDER BY name");
+      if (!rows.isEmpty()) {
+        List<String> list = new ArrayList<>();
+        for (var row : rows) {
+          list.add(String.valueOf(row.get("name")));
+        }
+        return list;
+      }
+    } catch (Exception ignored) {}
     return SUPPORTED_GENRES;
+  }
+
+  public static com.inkspell.model.ReadingStatus parseReadingStatus(String rawStatus) {
+    if (rawStatus == null || rawStatus.isBlank()) {
+      return com.inkspell.model.ReadingStatus.WANT_TO_READ;
+    }
+    String normalized = rawStatus.trim().toUpperCase(Locale.ROOT).replace('-', '_').replace(' ', '_');
+    if ("TO_READ".equals(normalized) || "WANT_TO_READ".equals(normalized)) {
+      return com.inkspell.model.ReadingStatus.WANT_TO_READ;
+    }
+    if ("CURRENTLY_READING".equals(normalized) || "READING".equals(normalized)) {
+      return com.inkspell.model.ReadingStatus.CURRENTLY_READING;
+    }
+    if ("COMPLETED".equals(normalized) || "FINISHED".equals(normalized) || "READ".equals(normalized)) {
+      return com.inkspell.model.ReadingStatus.COMPLETED;
+    }
+    try {
+      return com.inkspell.model.ReadingStatus.valueOf(normalized);
+    } catch (IllegalArgumentException e) {
+      return com.inkspell.model.ReadingStatus.WANT_TO_READ;
+    }
   }
 
   public enum ResultStatus {
@@ -85,56 +116,66 @@ public class BookService {
   }
 
   /**
-   * Checks whether a book already exists in InkSpell by ISBN or normalized (title + author).
+   * Checks whether a book already exists in InkSpell by title and author (or consistent ISBN).
+   * A completely different title will never trigger a false duplicate match.
    */
   public Optional<Map<String, Object>> findDuplicate(String isbn, String title, String author)
       throws SQLException {
-    // 1. Primary check: ISBN
-    if (isbn != null && !isbn.isBlank()) {
-      String cleanIsbn = isbn.replaceAll("[^0-9Xx]", "").toUpperCase(Locale.ROOT);
-      if (!cleanIsbn.isEmpty()) {
-        // In-memory catalogue check
-        for (BookItem b : BookCatalogue.getAll()) {
-          if (b.getIsbn() != null) {
-            String bIsbn = b.getIsbn().replaceAll("[^0-9Xx]", "").toUpperCase(Locale.ROOT);
-            if (bIsbn.equals(cleanIsbn)) {
-              return Optional.of(b.toMap());
-            }
-          }
-        }
-        // MySQL check
-        var rows =
-            Sql.query(
-                CatalogDao.SELECT
-                    + " WHERE REPLACE(REPLACE(b.isbn, '-', ''), ' ', '') = ? LIMIT 1",
-                cleanIsbn);
-        if (!rows.isEmpty()) {
-          return Optional.of(rows.getFirst());
-        }
-      }
-    }
-
-    // 2. Secondary check: Normalized Title + Author
     String normTitle = normalize(title);
     String normAuthor = normalize(author);
 
-    if (!normTitle.isEmpty() && !normAuthor.isEmpty()) {
-      // In-memory catalogue check
+    if (normTitle.isEmpty()) {
+      return Optional.empty();
+    }
+
+    // 1. Primary check: Genuine Title + Author match in MySQL books table
+    if (!normAuthor.isEmpty()) {
+      var rows =
+          Sql.query(
+              CatalogDao.SELECT
+                  + " WHERE LOWER(TRIM(b.title)) = ? AND LOWER(TRIM(b.author)) = ? ORDER BY b.id ASC LIMIT 1",
+              normTitle,
+              normAuthor);
+      if (!rows.isEmpty()) {
+        return Optional.of(rows.getFirst());
+      }
+
+      // Also check in-memory catalogue for title + author
       for (BookItem b : BookCatalogue.getAll()) {
         if (normalize(b.getTitle()).equals(normTitle)
             && normalize(b.getAuthor()).equals(normAuthor)) {
           return Optional.of(b.toMap());
         }
       }
-      // MySQL check
+    } else {
+      // If author is unspecified, check by title alone in MySQL
       var rows =
           Sql.query(
               CatalogDao.SELECT
-                  + " WHERE LOWER(TRIM(b.title)) = ? AND LOWER(TRIM(b.author)) = ? LIMIT 1",
-              normTitle,
-              normAuthor);
+                  + " WHERE LOWER(TRIM(b.title)) = ? ORDER BY b.id ASC LIMIT 1",
+              normTitle);
       if (!rows.isEmpty()) {
         return Optional.of(rows.getFirst());
+      }
+    }
+
+    // 2. Secondary check: ISBN match ONLY when title also genuinely aligns
+    // Under no circumstances should an unrelated book match merely due to an ISBN.
+    if (isbn != null && !isbn.isBlank()) {
+      String cleanIsbn = isbn.replaceAll("[^0-9Xx]", "").toUpperCase(Locale.ROOT);
+      if (cleanIsbn.length() == 10 || cleanIsbn.length() == 13) {
+        var rows =
+            Sql.query(
+                CatalogDao.SELECT
+                    + " WHERE REPLACE(REPLACE(b.isbn, '-', ''), ' ', '') = ? ORDER BY b.id ASC LIMIT 1",
+                cleanIsbn);
+        if (!rows.isEmpty()) {
+          Map<String, Object> existing = rows.getFirst();
+          String existingTitle = normalize(String.valueOf(existing.get("title")));
+          if (existingTitle.equals(normTitle) || existingTitle.contains(normTitle) || normTitle.contains(existingTitle)) {
+            return Optional.of(existing);
+          }
+        }
       }
     }
 
@@ -184,6 +225,7 @@ public class BookService {
 
   /**
    * Validates and persists a new book, with duplicate prevention and optional collection attachment.
+   * Default reading status is WANT_TO_READ for backwards compatibility.
    */
   public BookResult addBook(
       long userId,
@@ -195,6 +237,37 @@ public class BookService {
       String rawIsbn,
       String rawYear,
       String rawPages,
+      boolean addToCollection)
+      throws SQLException {
+    return addBook(
+        userId,
+        rawTitle,
+        rawAuthor,
+        rawGenre,
+        rawDescription,
+        rawCoverUrl,
+        rawIsbn,
+        rawYear,
+        rawPages,
+        "WANT_TO_READ",
+        addToCollection);
+  }
+
+  /**
+   * Validates and permanently persists a new book into MySQL, associating it with the current user's
+   * collection under their chosen reading status (WANT_TO_READ, CURRENTLY_READING, or COMPLETED).
+   */
+  public BookResult addBook(
+      long userId,
+      String rawTitle,
+      String rawAuthor,
+      String rawGenre,
+      String rawDescription,
+      String rawCoverUrl,
+      String rawIsbn,
+      String rawYear,
+      String rawPages,
+      String rawStatus,
       boolean addToCollection)
       throws SQLException {
 
@@ -242,7 +315,10 @@ public class BookService {
       coverUrl = "https://covers.openlibrary.org/b/isbn/" + cleanIsbn + "-L.jpg";
     }
 
-    // 3. Duplicate Prevention
+    // 3. Resolve Reading Status
+    com.inkspell.model.ReadingStatus status = parseReadingStatus(rawStatus);
+
+    // 4. Duplicate Prevention
     Optional<Map<String, Object>> duplicate = findDuplicate(cleanIsbn, title, author);
 
     if (duplicate.isPresent()) {
@@ -254,21 +330,37 @@ public class BookService {
         return new BookResult(
             ResultStatus.ALREADY_IN_COLLECTION,
             "\"" + existing.get("title") + "\" by " + existing.get("author")
-                + " is already resting on your collection shelf.",
+                + " already exists in your personal collection.",
             existingId,
             existing);
       }
 
       if (addToCollection) {
-        // Book exists in catalogue; directly place onto user's shelf without duplicating the book
+        int curPage = (status == com.inkspell.model.ReadingStatus.COMPLETED && totalPages != null) ? totalPages : 0;
+        java.sql.Date startDate = (status == com.inkspell.model.ReadingStatus.CURRENTLY_READING || status == com.inkspell.model.ReadingStatus.COMPLETED)
+            ? new java.sql.Date(System.currentTimeMillis()) : null;
+        java.sql.Date compDate = (status == com.inkspell.model.ReadingStatus.COMPLETED)
+            ? new java.sql.Date(System.currentTimeMillis()) : null;
+
         Sql.update(
-            "INSERT IGNORE INTO user_library(user_id, book_id, reading_status, current_page) VALUES(?, ?, 'WANT_TO_READ', 0)",
+            "INSERT INTO user_library(user_id, book_id, reading_status, current_page, date_started, date_completed) VALUES(?, ?, ?, ?, ?, ?)",
             userId,
-            existingId);
+            existingId,
+            status.name(),
+            curPage,
+            startDate,
+            compDate);
+
         try {
-          ReadingDashboardService.recordActivity(
-              userId, existingId, "SHELVED", "Placed \"" + existing.get("title") + "\" on personal shelves");
+          String actType = status == com.inkspell.model.ReadingStatus.COMPLETED ? "COMPLETED" : (status == com.inkspell.model.ReadingStatus.CURRENTLY_READING ? "STARTED" : "SHELVED");
+          String actDesc = status == com.inkspell.model.ReadingStatus.COMPLETED
+              ? "Completed reading \"" + existing.get("title") + "\""
+              : (status == com.inkspell.model.ReadingStatus.CURRENTLY_READING
+                  ? "Began reading \"" + existing.get("title") + "\""
+                  : "Placed \"" + existing.get("title") + "\" on personal shelves");
+          ReadingDashboardService.recordActivity(userId, existingId, actType, actDesc);
         } catch (Exception ignored) {}
+
         return new BookResult(
             ResultStatus.EXISTING_ADDED_TO_COLLECTION,
             "\"" + existing.get("title") + "\" was already recorded in our archives and has now been added to your collection!",
@@ -278,13 +370,13 @@ public class BookService {
         return new BookResult(
             ResultStatus.EXISTING_IN_CATALOGUE,
             "\"" + existing.get("title") + "\" by " + existing.get("author")
-                + " is already inscribed in the library catalogue.",
+                + " already exists in the library book catalog.",
             existingId,
             existing);
       }
     }
 
-    // 4. Persistence in MySQL
+    // 5. Persistence in MySQL
     int genreId = getOrCreateGenre(genre);
     long newBookId;
 
@@ -329,13 +421,23 @@ public class BookService {
           }
         }
 
-        // If requested, directly link book to user's collection with 'WANT_TO_READ' status
+        // Directly link book to user's collection with the chosen reading status
         if (addToCollection) {
+          int curPage = (status == com.inkspell.model.ReadingStatus.COMPLETED && totalPages != null) ? totalPages : 0;
+          java.sql.Date startDate = (status == com.inkspell.model.ReadingStatus.CURRENTLY_READING || status == com.inkspell.model.ReadingStatus.COMPLETED)
+              ? new java.sql.Date(System.currentTimeMillis()) : null;
+          java.sql.Date compDate = (status == com.inkspell.model.ReadingStatus.COMPLETED)
+              ? new java.sql.Date(System.currentTimeMillis()) : null;
+
           try (PreparedStatement psLib =
               c.prepareStatement(
-                  "INSERT INTO user_library(user_id, book_id, reading_status, current_page) VALUES(?, ?, 'WANT_TO_READ', 0)")) {
+                  "INSERT INTO user_library(user_id, book_id, reading_status, current_page, date_started, date_completed) VALUES(?, ?, ?, ?, ?, ?)")) {
             psLib.setLong(1, userId);
             psLib.setLong(2, newBookId);
+            psLib.setString(3, status.name());
+            psLib.setInt(4, curPage);
+            psLib.setDate(5, startDate);
+            psLib.setDate(6, compDate);
             psLib.executeUpdate();
           }
         }
@@ -347,14 +449,25 @@ public class BookService {
       }
     }
 
+    // Verify persistence directly from MySQL
+    var verifyRows = Sql.query("SELECT id FROM books WHERE id=?", newBookId);
+    if (verifyRows.isEmpty()) {
+      throw new SQLException("Verification failed: book was not persisted in database.");
+    }
+
     if (addToCollection) {
       try {
-        ReadingDashboardService.recordActivity(
-            userId, newBookId, "SHELVED", "Inscribed new story \"" + title + "\" into collection");
+        String actType = status == com.inkspell.model.ReadingStatus.COMPLETED ? "COMPLETED" : (status == com.inkspell.model.ReadingStatus.CURRENTLY_READING ? "STARTED" : "SHELVED");
+        String actDesc = status == com.inkspell.model.ReadingStatus.COMPLETED
+            ? "Completed reading \"" + title + "\""
+            : (status == com.inkspell.model.ReadingStatus.CURRENTLY_READING
+                ? "Began reading \"" + title + "\""
+                : "Inscribed new story \"" + title + "\" into collection");
+        ReadingDashboardService.recordActivity(userId, newBookId, actType, actDesc);
       } catch (Exception ignored) {}
     }
 
-    // 5. In-Memory Catalogue Registration
+    // 6. In-Memory Catalogue Registration
     BookItem newItem =
         new BookItem(
             newBookId,

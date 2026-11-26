@@ -70,6 +70,10 @@ public class AddBookServlet extends HttpServlet {
     String publicationYear = r.getParameter("publicationYear");
     String isbn = r.getParameter("isbn");
     String totalPages = r.getParameter("totalPages");
+    String readingStatus = r.getParameter("readingStatus");
+    if (readingStatus == null || readingStatus.isBlank()) {
+      readingStatus = r.getParameter("status");
+    }
     String submitAction = r.getParameter("submitAction");
     boolean addToCollection = !"catalogue".equalsIgnoreCase(submitAction);
 
@@ -85,6 +89,7 @@ public class AddBookServlet extends HttpServlet {
               isbn,
               publicationYear,
               totalPages,
+              readingStatus,
               addToCollection);
 
       if (isAjax) {
@@ -113,11 +118,11 @@ public class AddBookServlet extends HttpServlet {
         r.getRequestDispatcher("/WEB-INF/views/add-book.jsp").forward(r, s);
       }
     } catch (IllegalArgumentException e) {
-      preserveFields(r, title, author, genre, description, coverUrl, publicationYear, isbn, totalPages);
+      preserveFields(r, title, author, genre, description, coverUrl, publicationYear, isbn, totalPages, readingStatus);
       handleError(r, s, e.getMessage(), 400, isAjax);
     } catch (SQLException e) {
       getServletContext().log("Failed to persist book; SQLState=" + e.getSQLState(), e);
-      preserveFields(r, title, author, genre, description, coverUrl, publicationYear, isbn, totalPages);
+      preserveFields(r, title, author, genre, description, coverUrl, publicationYear, isbn, totalPages, readingStatus);
       handleError(
           r,
           s,
@@ -126,7 +131,7 @@ public class AddBookServlet extends HttpServlet {
           isAjax);
     } catch (Exception e) {
       getServletContext().log("Unexpected error in AddBookServlet", e);
-      preserveFields(r, title, author, genre, description, coverUrl, publicationYear, isbn, totalPages);
+      preserveFields(r, title, author, genre, description, coverUrl, publicationYear, isbn, totalPages, readingStatus);
       handleError(
           r,
           s,
@@ -145,7 +150,8 @@ public class AddBookServlet extends HttpServlet {
       String coverUrl,
       String publicationYear,
       String isbn,
-      String totalPages) {
+      String totalPages,
+      String readingStatus) {
     r.setAttribute("title", title);
     r.setAttribute("author", author);
     r.setAttribute("genre", genre);
@@ -154,6 +160,7 @@ public class AddBookServlet extends HttpServlet {
     r.setAttribute("publicationYear", publicationYear);
     r.setAttribute("isbn", isbn);
     r.setAttribute("totalPages", totalPages);
+    r.setAttribute("readingStatus", readingStatus);
     r.setAttribute("genres", BookService.getAvailableGenres());
   }
 

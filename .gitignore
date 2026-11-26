@@ -10,3 +10,7 @@ config/inkspell.properties
 *.iml
 local-tomcat/
 test-results/
+*.class
+.DS_Store
+Thumbs.db
+

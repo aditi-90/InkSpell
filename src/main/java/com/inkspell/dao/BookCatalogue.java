@@ -29,6 +29,7 @@ public final class BookCatalogue {
           "Gothic Fiction",
           "Psychological Thriller");
 
+  private static final List<BookItem> SEED_BOOKS;
   private static final List<BookItem> ALL_BOOKS = new java.util.concurrent.CopyOnWriteArrayList<>();
   private static final Map<Long, BookItem> BOOKS_BY_ID = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -3618,10 +3619,10 @@ public final class BookCatalogue {
                 "The howling wind and peat bog setting create magnificent, tense atmosphere.")));
 
     ALL_BOOKS.addAll(list);
+    SEED_BOOKS = Collections.unmodifiableList(new ArrayList<>(list));
     for (BookItem b : list) {
       BOOKS_BY_ID.put(b.getId(), b);
     }
-    loadCustomBooksFromDatabase();
   }
 
   /** Dynamically registers a newly added custom book into memory so it appears across discovery and catalogue searches. */
@@ -3632,12 +3633,14 @@ public final class BookCatalogue {
     ALL_BOOKS.add(item);
   }
 
-  /** Loads all custom user-added books (id > 108) from MySQL books table into memory if available. */
+  /** Loads all custom user-added books from MySQL books table into memory if available. */
   public static void loadCustomBooksFromDatabase() {
     try {
-      var rows = Sql.query("SELECT b.*, g.name AS genre_name FROM books b JOIN genres g ON b.genre_id=g.id WHERE b.id > 108");
+      var rows = Sql.query("SELECT b.*, g.name AS genre_name FROM books b JOIN genres g ON b.genre_id=g.id WHERE b.id > 108 OR b.is_demo = 0");
+      Set<Long> dbCustomIds = new HashSet<>();
       for (var row : rows) {
         long id = ((Number) row.get("id")).longValue();
+        dbCustomIds.add(id);
         if (!BOOKS_BY_ID.containsKey(id)) {
           String title = String.valueOf(row.get("title"));
           String author = String.valueOf(row.get("author"));
@@ -3665,11 +3668,22 @@ public final class BookCatalogue {
                   false,
                   1,
                   Collections.emptyList());
-          addCustomBook(b);
+          BOOKS_BY_ID.put(id, b);
+          ALL_BOOKS.removeIf(existing -> existing.getId() == id);
+          ALL_BOOKS.add(b);
         }
       }
+      // Reconcile: remove any custom books (id > 108) that no longer exist in database
+      BOOKS_BY_ID.keySet().removeIf(id -> id > 108 && !dbCustomIds.contains(id));
+      ALL_BOOKS.removeIf(b -> b.getId() > 108 && !dbCustomIds.contains(b.getId()));
     } catch (Throwable ignored) {
     }
+  }
+
+  /** Removes a custom book from in-memory catalogue. */
+  public static void removeCustomBook(long id) {
+    BOOKS_BY_ID.remove(id);
+    ALL_BOOKS.removeIf(b -> b.getId() == id);
   }
 
   private BookCatalogue() {}
@@ -3718,18 +3732,23 @@ public final class BookCatalogue {
     return new ReviewItem(name, date, rating, text);
   }
 
-  /** Returns all 108 books in the catalogue. */
+  /** Returns all 108 seed books in the catalogue. */
   public static List<BookItem> getAll() {
-    return ALL_BOOKS;
+    return SEED_BOOKS;
   }
 
-  /** Returns all 108 books as JSP-compatible Maps. */
+  /** Returns all 108 seed books as JSP-compatible Maps. */
   public static List<Map<String, Object>> getAllAsMaps() {
-    return ALL_BOOKS.stream().map(BookItem::toMap).collect(Collectors.toList());
+    return SEED_BOOKS.stream().map(BookItem::toMap).collect(Collectors.toList());
   }
 
   /** Finds a book by its unique ID. */
   public static Optional<BookItem> getById(long id) {
+    BookItem item = BOOKS_BY_ID.get(id);
+    if (item != null) {
+      return Optional.of(item);
+    }
+    loadCustomBooksFromDatabase();
     return Optional.ofNullable(BOOKS_BY_ID.get(id));
   }
 
@@ -3739,7 +3758,7 @@ public final class BookCatalogue {
   }
 
   /**
-   * Performs in-memory filtering and sorting across the 108 books.
+   * Performs in-memory filtering and sorting across the catalogue books.
    *
    * @param query search text matching title, author, genre, tags, or description
    * @param genre filter by genre (null or empty for all)
@@ -3753,8 +3772,10 @@ public final class BookCatalogue {
     String q = (query == null) ? "" : query.trim().toLowerCase();
     String g = (genre == null) ? "" : genre.trim();
 
+    List<BookItem> source = q.isEmpty() ? SEED_BOOKS : ALL_BOOKS;
+
     List<BookItem> matched =
-        ALL_BOOKS.stream()
+        source.stream()
             .filter(
                 b -> {
                   if (!g.isEmpty() && !b.getGenre().equalsIgnoreCase(g)) {
@@ -3815,8 +3836,10 @@ public final class BookCatalogue {
     String q = (query == null) ? "" : query.trim().toLowerCase();
     String g = (genre == null) ? "" : genre.trim();
 
+    List<BookItem> source = q.isEmpty() ? SEED_BOOKS : ALL_BOOKS;
+
     return (int)
-        ALL_BOOKS.stream()
+        source.stream()
             .filter(
                 b -> {
                   if (!g.isEmpty() && !b.getGenre().equalsIgnoreCase(g)) return false;
