@@ -8,3 +8,10 @@ config/inkspell.properties
 *.log
 local-tomcat
 test-results
+.idea
+.vscode
+*.iml
+*.class
+.system_generated
+scratch
+

@@ -23,11 +23,11 @@ RUN rm -rf webapps/*
 COPY --from=builder /app/target/ROOT.war webapps/ROOT.war
 COPY db ./db
 
-# Environment defaults
-ENV PORT=8080
-ENV JAVA_OPTS="-Xms256m -Xmx512m -XX:+UseG1GC"
+# Environment defaults (Render defaults to port 10000 and 512MB RAM limit on free tier)
+ENV PORT=10000
+ENV JAVA_OPTS="-Xms128m -Xmx384m -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError"
 
-EXPOSE 8080
+EXPOSE 10000
 
-# Dynamically bind Tomcat to $PORT (required by cloud hosts like Railway/Render)
-CMD ["sh", "-c", "sed -i \"s/port=\\\"8080\\\"/port=\\\"${PORT}\\\"/g\" conf/server.xml && catalina.sh run"]
+# Dynamically bind Tomcat to $PORT on 0.0.0.0 and start in the foreground
+CMD ["sh", "-c", "sed -i -E \"s/port=\\\"8080\\\"/port=\\\"${PORT:-10000}\\\" address=\\\"0.0.0.0\\\"/g\" conf/server.xml && catalina.sh run"]
